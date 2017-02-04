@@ -109,6 +109,130 @@
     USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+var currentStyle = function(element){
+  return element.currentStyle || document.defaultView.getComputedStyle(element, null);
+}
+
+//获取元素的实际absolute位置
+//上下左右
+function getOffset(el){
+  if (!el) return
+
+  var parent
+  , pbox
+	, box = el.getBoundingClientRect()
+  , doc = el.ownerDocument
+  , body = doc.body
+  , docElement = doc.documentElement
+  // for ie
+  , clientTop = docElement.clientTop || body.clientTop || 0
+  , clientLeft = docElement.clientLeft || body.clientLeft || 0
+  // In Internet Explorer 7 getBoundingClientRect property is treated as physical,
+  // while others are logical. Make all logical, like in IE8.
+  , zoom = 1;
+
+  if (body.getBoundingClientRect) {
+    var bound = body.getBoundingClientRect();
+    zoom = (bound.right - bound.left)/body.clientWidth;
+  }
+
+  if (zoom > 1){
+    clientTop = 0;
+    clientLeft = 0;
+  }
+
+  var node = el.parentNode;
+  while(currentStyle(node).position != 'relative' && node.nodeName != 'BODY'){
+    node = node.parentNode;
+  }
+
+  parent = node;
+  pbox = parent.getBoundingClientRect();
+  var ptop = pbox.top/zoom + (window.pageYOffset || docElement && docElement.scrollTop/zoom || body.scrollTop/zoom) - clientTop,
+      pleft = pbox.left/zoom + (window.pageXOffset|| docElement && docElement.scrollLeft/zoom || body.scrollLeft/zoom) - clientLeft;
+
+  var top = box.top/zoom + (window.pageYOffset || docElement && docElement.scrollTop/zoom || body.scrollTop/zoom) - clientTop,
+      left = box.left/zoom + (window.pageXOffset|| docElement && docElement.scrollLeft/zoom || body.scrollLeft/zoom) - clientLeft;
+
+  top  = parent ? (top-ptop) : top;
+  left = parent ? (left-pleft) : left;
+  top  = top - parseInt(currentStyle(el).paddingTop)
+
+  var diff_height = box.bottom-box.top,
+      diff_width = box.right - box.left,
+      bottom = top + diff_height,
+      right = left + diff_width;
+
+  return {
+    top: top,
+    left: left,
+    bottom: bottom,
+    right: right,
+    width: diff_width,
+    height: diff_height
+  }
+}
+
+function crtElement(type, prop){
+  var node = document.createElement(type)
+  for(var attr in prop){
+    node.setAttribute(attr, prop[attr]);
+    if (attr == 'className') {
+      node.setAttribute('class', prop[attr]);
+    }
+  }
+  return node
+}
+
+function prependChild(parent,newChild){
+  if(parent.firstChild){
+    parent.insertBefore(newChild, parent.firstChild);
+  } else {
+    parent.appendChild(newChild);
+  }
+  return parent;
+}
+
+function getElementsByClassName(fatherId, className){
+  var node
+  if (fatherId) {
+    if (typeof fatherId == 'string') {
+      node = document.getElementById(fatherId)
+    }
+
+    if (typeof fatherId == 'object' && fatherId.nodeType) {
+      node = fatherId
+    }
+  } else {
+    node = document
+  }
+
+  if (!className) return false
+  if (className.indexOf(' ')>0) className = className.split(" ")
+  else {
+    className = [className]
+  }
+	var classNameLength = className.length;
+	for(var i = 0,j=classNameLength;i< j;i++){
+		//创建匹配类名的正则
+		className[i]= new RegExp("(^|\\s)" + className[i].replace(/\-/g, "\\-") + "(\\s|$)");
+	}
+	// var elements = node.getElementsByTagName(tagName);
+	var elements = node.children
+	var result = [];
+	for(var i=0, j=elements.length, k=0;i< j; i++){//缓存length属性
+		var element = elements[i];
+		while(className[k++].test(element.className)){//优化循环
+			if(k === classNameLength){
+				result[result.length] = element;
+				break;
+			}
+		}
+		k = 0;
+	}
+	return result;
+}
+
 window['Slip'] = (function(){
     'use strict';
 
@@ -160,6 +284,8 @@ window['Slip'] = (function(){
         this.options.keepSwipingPercent = options.keepSwipingPercent || 0;
         this.options.minimumSwipeVelocity = options.minimumSwipeVelocity || 1;
         this.options.minimumSwipeTime = options.minimumSwipeTime || 110;
+        this.options.rightBlock = options.rightBlock;
+        this.options.leftBlock = options.leftBlock;
 
         // Functions used for as event handlers need usable `this` and must not change to be removable
         this.cancel = this.setState.bind(this, this.states.idle);
@@ -172,6 +298,8 @@ window['Slip'] = (function(){
         this.onMouseLeave = this.onMouseLeave.bind(this);
         this.onSelection = this.onSelection.bind(this);
         this.onContainerFocus = this.onContainerFocus.bind(this);
+
+        this.switchTarget = true
 
         this.setState(this.states.idle);
         this.attach(container);
@@ -215,6 +343,7 @@ window['Slip'] = (function(){
         container: null,
         options: {},
         state: null,
+        swipeBlockState: false,
 
         target: null, // the tapped/swiped/reordered node with height and backed up styles
 
@@ -227,12 +356,19 @@ window['Slip'] = (function(){
 
         canPreventScrolling: false,
 
+        removeClass: function() {
+          var container = this.container;
+          container.classList.remove('slip-swiping-container');
+        },
+
         states: {
             idle: function idleStateInit() {
                 this.removeMouseHandlers();
-                if (this.target) {
+                if (!this.swipeBlockState) {
+                  if (this.target) {
                     this.target.node.style.willChange = '';
                     this.target = null;
+                  }
                 }
                 this.usingTouch = false;
 
@@ -242,71 +378,71 @@ window['Slip'] = (function(){
             },
 
             undecided: function undecidedStateInit() {
+              if (this.switchTarget) {
                 this.target.height = this.target.node.offsetHeight;
                 this.target.node.style.willChange = transformCSSPropertyName;
                 this.target.node.style[transitionJSPropertyName] = '';
 
                 if (!this.dispatch(this.target.originalTarget, 'beforewait')) {
-                    if (this.dispatch(this.target.originalTarget, 'beforereorder')) {
-                        this.setState(this.states.reorder);
-                    }
+                  if (this.dispatch(this.target.originalTarget, 'beforereorder')) {
+                    this.setState(this.states.reorder);
+                  }
                 } else {
-                    var holdTimer = setTimeout(function(){
-                        var move = this.getAbsoluteMovement();
-                        if (this.canPreventScrolling && move.x < 15 && move.y < 25) {
-                            if (this.dispatch(this.target.originalTarget, 'beforereorder')) {
-                                this.setState(this.states.reorder);
-                            }
-                        }
-                    }.bind(this), 300);
+                  var holdTimer = setTimeout(function(){
+                    var move = this.getAbsoluteMovement();
+                    if (this.canPreventScrolling && move.x < 15 && move.y < 25) {
+                      if (this.dispatch(this.target.originalTarget, 'beforereorder')) {
+                        this.setState(this.states.reorder);
+                      }
+                    }
+                  }.bind(this), 300);
                 }
+              }
 
-                return {
-                    leaveState: function() {
-                        clearTimeout(holdTimer);
-                    },
+              return {
+                leaveState: function() {
+                    clearTimeout(holdTimer);
+                },
 
-                    onMove: function() {
-                        var move = this.getAbsoluteMovement();
+                onMove: function() {
+                    var move = this.getAbsoluteMovement();
 
-                        if (move.x > 20 && move.y < Math.max(100, this.target.height)) {
-                            if (this.dispatch(this.target.originalTarget, 'beforeswipe', {directionX: move.directionX, directionY: move.directionY})) {
-                                this.setState(this.states.swipe);
-                                return false;
-                            } else {
-                                this.setState(this.states.idle);
-                            }
-                        }
-                        if (move.y > 20) {
+                    if (move.x > 20 && move.y < Math.max(100, this.target.height)) {
+                        if (this.dispatch(this.target.originalTarget, 'beforeswipe', {directionX: move.directionX, directionY: move.directionY})) {
+                            this.setState(this.states.swipe);
+                            return false;
+                        } else {
                             this.setState(this.states.idle);
                         }
-
-                        // Chrome likes sideways scrolling :(
-                        if (move.x > move.y*1.2) return false;
-                    },
-
-                    onLeave: function() {
+                    }
+                    if (move.y > 20) {
                         this.setState(this.states.idle);
-                    },
+                    }
 
-                    onEnd: function() {
-                        var allowDefault = this.dispatch(this.target.originalTarget, 'tap');
-                        this.setState(this.states.idle);
-                        return allowDefault;
-                    },
-                };
+                    // Chrome likes sideways scrolling :(
+                    if (move.x > move.y*1.2) return false;
+                },
+
+                onLeave: function() {
+                    this.setState(this.states.idle);
+                },
+
+                onEnd: function() {
+                    var allowDefault = this.dispatch(this.target.originalTarget, 'tap');
+                    this.setState(this.states.idle);
+                    return allowDefault;
+                },
+              };
             },
 
             swipe: function swipeStateInit() {
                 var swipeSuccess = false;
                 var container = this.container;
+                container.style.backgroundColor = '#efefef'
 
                 var originalIndex = findIndex(this.target, this.container.childNodes);
 
                 container.classList.add('slip-swiping-container');
-                function removeClass() {
-                    container.classList.remove('slip-swiping-container');
-                }
 
                 this.target.height = this.target.node.offsetHeight;
 
@@ -317,14 +453,72 @@ window['Slip'] = (function(){
                                 target.node.style[transformJSPropertyName] = target.baseTransform.original;
                                 target.node.style[transitionJSPropertyName] = '';
                                 if (this.dispatch(target.node, 'afterswipe')) {
-                                    removeClass();
+                                    this.removeClass();
                                     return true;
                                 } else {
                                     this.animateToZero(undefined, target);
                                 }
                             }.bind(this));
                         } else {
-                            this.animateToZero(removeClass);
+                          var that = this
+                          var move = this.getAbsoluteMovement();
+                          var t = getOffset(this.target.node)
+                          this.target.node.style.position = 'relative'
+                          var operation = {
+                            remove: function(){
+                              that.animateSwipe(function(target){
+                                  target.node.style[transformJSPropertyName] = target.baseTransform.original;
+                                  target.node.style[transitionJSPropertyName] = '';
+                                  that.removeClass();
+                                  target.node.remove()
+                                }
+                              )
+                            }
+                          }
+
+                          if( (Math.abs(move.x)/t.width)>0.25){
+                            if (this.options.rightBlock || this.options.leftBlock) {
+                              this.swipeBlockState = true
+                              var targetPos = (this.options.rightBlock?'-':'') + t.width * 0.45
+                              this.target.node.style[transformJSPropertyName] = 'translate(' + targetPos + 'px,0) ' + hwLayerMagicStyle + this.target.baseTransform.value;
+                            }
+                            if (move.directionX == 'left' && this.options.rightBlock) {
+                              var rbs = getElementsByClassName(this.target.node, 'slip-right-block')
+                              if (!rbs.length) {
+                                var props = {
+                                  className: 'slip-block slip-right-block',
+                                  style: 'position:absolute;height:'+t.height+'px;width:'+Math.abs(targetPos)+'px;left:'+t.width+'px;top:0;'
+                                }
+                                var node = crtElement('div', props)
+                                this.target.node.appendChild(node)
+                                rbs = [node]
+                              }
+                              if (typeof this.options.rightBlock == 'function') {
+                                this.options.rightBlock.call(operation, rbs[0])
+                              }
+                            }
+                            else if( move.directionX == 'right' && this.options.leftBlock) {
+                              var lbs = getElementsByClassName(this.target.node, 'slip-left-block')
+                              if (!lbs.length) {
+                                var props = {
+                                  className: 'slip-block slip-left-block',
+                                  style: 'position:absolute;height:'+t.height+'px;width:'+Math.abs(targetPos)+'px;left:'+('-'+targetPos)+'px;top:0;'
+                                }
+                                var node = crtElement('div', props)
+                                prependChild(this.target.node, node)
+                                lbs = [node]
+                              }
+                              if (typeof this.options.leftBlock == 'function') {
+                                this.options.leftBlock.call(operation, lbs[0])
+                              }
+                            }
+                            else {
+                              this.animateToZero(this.removeClass);
+                            }
+                          } else {
+                            this.animateToZero(this.removeClass);
+                          }
+
                         }
                     },
 
@@ -707,6 +901,21 @@ window['Slip'] = (function(){
             }
             scrollContainer = scrollContainer || document.body;
 
+            if (this.target) {
+              if (targetNode == this.target.node) {
+                this.switchTarget = false
+                return true
+              }
+              this.switchTarget = true
+              if (this.swipeBlockState) {
+                this.swipeBlockState = false
+                var temp = getElementsByClassName(this.target.node, 'slip-block')
+                temp.length ? temp[0].remove() : ''
+                this.animateToZero(this.removeClass);
+                this.states.idle.call(this)
+              }
+            }
+
             this.target = {
                 originalTarget: e.target,
                 node: targetNode,
@@ -715,12 +924,15 @@ window['Slip'] = (function(){
                 origScrollHeight: scrollContainer.scrollHeight,
                 baseTransform: getTransform(targetNode),
             };
+
             return true;
         },
 
         startAtPosition: function(pos) {
+          if (this.switchTarget) {
             this.startPosition = this.previousPosition = this.latestPosition = pos;
-            this.setState(this.states.undecided);
+          }
+          this.setState(this.states.undecided);
         },
 
         updatePosition: function(e, pos) {
@@ -895,4 +1107,3 @@ window['Slip'] = (function(){
     }
     return Slip;
 })();
-

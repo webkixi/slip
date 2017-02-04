@@ -7,6 +7,18 @@ Supports iOS Safari, Firefox Mobile, Chrome Mobile, Opera Mobile (Presto and Bli
 
 ![Demo](https://kornel.ski/slip/demo.gif)
 
+## New Part
+
+Add `options.rightBlock`, `options.leftBlock`, support swipe menu
+```
+var list = document.querySelector('ul#slippylist');
+new Slip(list, {
+  rightBlock: function(dom){
+    $(dom).html('...')
+  }
+});
+```
+
 ## Usage
 
 You interact with the library via custom DOM events for swipes/reordering.  Call `new Slip(<element>)` to make element's children swipeable and add event listeners for any of the following events:
