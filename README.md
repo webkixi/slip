@@ -14,9 +14,13 @@ Add `options.rightBlock`, `options.leftBlock`, support swipe menu
 var list = document.querySelector('ul#slippylist');
 new Slip(list, {
   rightBlock: function(dom){
-    $(dom).html('...')
+    let that = this
+    $(dom).html('<button id="test">123</button>')
+    $('#test').click(function(){
+      that.remove()
+    })
   }
-});
+})
 ```
 
 ## Usage
