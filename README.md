@@ -1,15 +1,6 @@
-# Slip
-A tiny library for interactive swiping and reordering of elements in lists on touch screens. No dependencies. BSD Licensed.
+## LOG
 
-[Try **live demo**](https://kornel.ski/slip/) (best on a touchscreen device)
-
-Supports iOS Safari, Firefox Mobile, Chrome Mobile, Opera Mobile (Presto and Blink).
-
-![Demo](https://kornel.ski/slip/demo.gif)
-
-## New Part
-
-Add `options.rightBlock`, `options.leftBlock`, support swipe menu
+1. Add `options.rightBlock`, `options.leftBlock`, support swipe menu
 ```
 var list = document.querySelector('ul#slippylist');
 new Slip(list, {
@@ -21,7 +12,18 @@ new Slip(list, {
     })
   }
 })
-```
+```  
+
+2. To CMD
+
+# Slip
+A tiny library for interactive swiping and reordering of elements in lists on touch screens. No dependencies. BSD Licensed.
+
+[Try **live demo**](https://kornel.ski/slip/) (best on a touchscreen device)
+
+Supports iOS Safari, Firefox Mobile, Chrome Mobile, Opera Mobile (Presto and Blink).
+
+![Demo](https://kornel.ski/slip/demo.gif)
 
 ## Usage
 
